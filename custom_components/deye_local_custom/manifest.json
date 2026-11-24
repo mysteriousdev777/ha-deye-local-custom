@@ -1,6 +1,7 @@
 {
   "domain": "deye_local_custom",
   "name": "Deye Local Custom",
+  "categories": ["energy.solar_batteries"],
   "codeowners": ["@mysteriousdev777"],
   "config_flow": true,
   "documentation": "https://github.com/mysteriousdev777/ha-deye-local-custom",
