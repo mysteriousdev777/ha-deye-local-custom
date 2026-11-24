@@ -1,0 +1,66 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "The inverter is read through its Solarman Wi-Fi logger. Give the logger a fixed address in your router.",
+        "data": {
+          "host": "Logger IP address",
+          "port": "Port",
+          "logger_serial": "Logger serial number"
+        },
+        "data_description": {
+          "host": "The logger's address on your network.",
+          "port": "The logger's Modbus TCP port: 8899 unless changed.",
+          "logger_serial": "The serial number of the logger (on its label and in its web page), not of the inverter."
+        }
+      },
+      "reconfigure": {
+        "description": "Change how the logger is reached. It must be the same inverter.",
+        "data": {
+          "host": "Logger IP address",
+          "port": "Port",
+          "logger_serial": "Logger serial number"
+        },
+        "data_description": {
+          "host": "The logger's address on your network.",
+          "port": "The logger's Modbus TCP port: 8899 unless changed.",
+          "logger_serial": "The serial number of the logger, not of the inverter."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No answer from the logger. Check the address, the port and the logger's serial number: with a wrong serial the logger does not answer at all.",
+      "no_serial": "The logger answered, but the inverter's serial number registers are empty. Is the inverter on and connected to the logger?"
+    },
+    "abort": {
+      "already_configured": "This inverter is already added; its connection settings were updated.",
+      "already_in_progress": "This inverter is already being set up.",
+      "unsupported_model": "This inverter (device type {device_type}) is not supported: this integration is made for the Deye SUN-5K-SG03LP1-EU.",
+      "wrong_device": "Another inverter answers at this address.",
+      "reconfigure_successful": "The connection settings were changed."
+    }
+  },
+  "exceptions": {
+    "no_answer": {
+      "message": "No answer from the logger: {reason}."
+    },
+    "unsupported_model": {
+      "message": "This version does not support the inverter's device type {device_type}."
+    },
+    "not_writable": {
+      "message": "{value} is not one of the allowed values."
+    },
+    "write_refused": {
+      "message": "The inverter refused the new value: {reason}."
+    },
+    "write_no_answer": {
+      "message": "The inverter did not confirm the new value, tried for {seconds} seconds: {reason}."
+    },
+    "write_interrupted": {
+      "message": "Writing stopped: the integration was reloaded before the inverter confirmed the new value. Check the current value."
+    },
+    "write_not_applied": {
+      "message": "The inverter did not take {value}: it reads {current}."
+    }
+  }
+}

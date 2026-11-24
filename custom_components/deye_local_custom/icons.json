@@ -1,0 +1,40 @@
+{
+  "entity": {
+    "select": {
+      "grid_charging_current_preset": {
+        "default": "mdi:battery-charging-high"
+      }
+    },
+    "sensor": {
+      "grid_connected_status": {
+        "default": "mdi:transmission-tower"
+      },
+      "running_status": {
+        "default": "mdi:solar-power"
+      },
+      "grid_charging_current": {
+        "default": "mdi:battery-charging-50"
+      },
+      "max_charging_current": {
+        "default": "mdi:battery-arrow-up"
+      },
+      "max_discharging_current": {
+        "default": "mdi:battery-arrow-down"
+      },
+      "clock_drift": {
+        "default": "mdi:clock-alert-outline"
+      },
+      "fault_codes": {
+        "default": "mdi:alert-octagon-outline"
+      },
+      "warning_code": {
+        "default": "mdi:alert-outline"
+      }
+    },
+    "binary_sensor": {
+      "grid_charge": {
+        "default": "mdi:battery-charging-wireless"
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# Development and CI: Home Assistant 2026.10.4 with its test harness (Python 3.14), the
+# integration's requirements as in manifest.json, and the linter.
+pytest-homeassistant-custom-component==0.13.375
+pysolarmanv5==3.0.6
+umodbus==1.0.4
+ruff==0.17.3
