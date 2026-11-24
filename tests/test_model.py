@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -58,6 +59,22 @@ def test_only_declared_registers_and_values_are_writable(model) -> None:
     assert model.writable == {
         d.registers[0]: frozenset(d.values) for d in model.selects
     }
+
+
+@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.key)
+def test_display_precision_is_the_registers_resolution(model) -> None:
+    """Every sensor with a unit states its display precision. Without one, Home
+    Assistant takes a default of the device class: a current in A got 2 decimals,
+    "50.00 A" for a register of whole amperes."""
+    for d in model.sensors:
+        if d.native_unit_of_measurement is None:
+            continue
+        assert d.suggested_display_precision is not None, d.key
+        sample = d.decode([1] * len(d.registers))
+        if sample is None:  # not a plain number (clock drift of an impossible date)
+            continue
+        decimals = max(0, -int(Decimal(str(sample)).normalize().as_tuple().exponent))
+        assert d.suggested_display_precision == decimals, d.key
 
 
 def test_sg03lp1_writes_only_the_grid_charging_presets() -> None:

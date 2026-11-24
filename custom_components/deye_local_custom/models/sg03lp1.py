@@ -102,6 +102,8 @@ def _sensor(
     enabled: bool = True,
     category: EntityCategory | None = None,
 ) -> DeyeSensorDescription:
+    # A sensor with a unit always gets its precision (the registers' resolution):
+    # without one Home Assistant takes its device class default, 2 decimals for amperes.
     return DeyeSensorDescription(
         key=key,
         translation_key=key,
@@ -189,6 +191,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         POWER,
         W,
+        precision=0,
     ),
     _sensor(
         "grid_frequency",
@@ -219,6 +222,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         POWER,
         W,
+        precision=0,
         enabled=False,
     ),
     _energy("daily_energy_bought", "Daily energy bought", (76,), enabled=False),
@@ -238,7 +242,14 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         precision=1,
     ),
     _sensor(
-        "load_l1_power", "Load L1 Power", (176,), number(signed=True), FAST, POWER, W
+        "load_l1_power",
+        "Load L1 Power",
+        (176,),
+        number(signed=True),
+        FAST,
+        POWER,
+        W,
+        precision=0,
     ),
     _sensor(
         "total_load_power",
@@ -248,6 +259,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         POWER,
         W,
+        precision=0,
     ),
     _sensor(
         "load_frequency",
@@ -262,7 +274,16 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
     _energy("total_load_consumption", "Total Load Consumption", (85, 86)),
     _energy("daily_load_consumption", "Daily load consumption", (84,), enabled=False),
     # Inverter output
-    _sensor("total_power", "Total Power", (175,), number(signed=True), FAST, POWER, W),
+    _sensor(
+        "total_power",
+        "Total Power",
+        (175,),
+        number(signed=True),
+        FAST,
+        POWER,
+        W,
+        precision=0,
+    ),
     _sensor(
         "output_power",
         "Output power",
@@ -271,6 +292,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         POWER,
         W,
+        precision=0,
         enabled=False,
     ),
     _sensor(
@@ -303,6 +325,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         SensorDeviceClass.BATTERY,
         PERCENTAGE,
+        precision=0,
     ),
     _sensor(
         "battery_power",
@@ -312,6 +335,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         FAST,
         POWER,
         W,
+        precision=0,
     ),
     _sensor(
         "battery_current",
@@ -339,8 +363,28 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
     _energy("daily_battery_charge", "Daily battery charge", (70,), enabled=False),
     _energy("daily_battery_discharge", "Daily battery discharge", (71,), enabled=False),
     # PV (two MPPT inputs)
-    _sensor("pv1_power", "PV1 power", (186,), number(), FAST, POWER, W, enabled=False),
-    _sensor("pv2_power", "PV2 power", (187,), number(), FAST, POWER, W, enabled=False),
+    _sensor(
+        "pv1_power",
+        "PV1 power",
+        (186,),
+        number(),
+        FAST,
+        POWER,
+        W,
+        precision=0,
+        enabled=False,
+    ),
+    _sensor(
+        "pv2_power",
+        "PV2 power",
+        (187,),
+        number(),
+        FAST,
+        POWER,
+        W,
+        precision=0,
+        enabled=False,
+    ),
     _sensor(
         "pv1_voltage",
         "PV1 voltage",
@@ -441,6 +485,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         clock_drift,
         CLOCK,
         unit=UnitOfTime.SECONDS,
+        precision=0,
         enabled=False,
         category=DIAGNOSTIC,
     ),
@@ -454,6 +499,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         SLOW,
         CURRENT,
         A,
+        precision=0,
         category=DIAGNOSTIC,
     ),
     _sensor(
@@ -464,6 +510,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         SLOW,
         CURRENT,
         A,
+        precision=0,
         enabled=False,
         category=DIAGNOSTIC,
     ),
@@ -475,6 +522,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         SLOW,
         CURRENT,
         A,
+        precision=0,
         enabled=False,
         category=DIAGNOSTIC,
     ),
