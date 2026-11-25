@@ -74,6 +74,10 @@ class DeyeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.values: dict[str, Any] = {}
         self.read_at: dict[str, float] = {}  # monotonic time of each key's last read
         self.last_read: float | None = None  # of any request
+        # The shortest interval of the entities read (set on each poll): reads come at
+        # least this often while the inverter answers. Not the polling step: with grid
+        # voltage disabled, or only slow entities left, polls in between read nothing.
+        self.step: int = model.tick
         self.last_error: str | None = None
         self.requests: dict[str, int] = {"ok": 0, "failed": 0}
         # One request at a time on the connection; a write holds it for a whole attempt
@@ -101,10 +105,11 @@ class DeyeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def connected(self) -> bool:
-        """A good read within one polling step + HOLD: off when the fast values go."""
+        """A good read within the shortest interval of the entities read + HOLD: off
+        when the values read most often go (grid voltage, unless disabled)."""
         return (
             self.last_read is not None
-            and monotonic() - self.last_read <= self.model.tick + HOLD
+            and monotonic() - self.last_read <= self.step + HOLD
         )
 
     # Polling
@@ -132,6 +137,10 @@ class DeyeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         active = self.active_keys()
+        self.step = min(
+            (d.interval for d in self.model.descriptions if d.key in active),
+            default=self.model.tick,
+        )
         requests = plan(self.model, active, self.read_at, monotonic())
         for request in requests:
             if self._writes:  # the write goes first; what is due stays due
@@ -203,7 +212,7 @@ class DeyeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             _LOGGER.warning(
                 "No answer from the inverter for over %s s, its values are unavailable: %s",
-                int(self.model.tick + HOLD),
+                int(self.step + HOLD),
                 self.last_error,
             )
 

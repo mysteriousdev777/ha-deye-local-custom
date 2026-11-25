@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import dataclasses
 from datetime import datetime
 from decimal import Decimal
+import itertools
 
 import pytest
 
 from custom_components.deye_local_custom.const import (
+    DEFAULT_INTERVALS,
     GRID_CHARGE_PRESETS_A,
-    GRID_VOLTAGE_INTERVAL_S,
+    INTERVAL_CHOICES,
+    Tier,
 )
 from custom_components.deye_local_custom.description import (
     MAX_REQUEST,
@@ -18,6 +20,9 @@ from custom_components.deye_local_custom.description import (
     combine,
     fault_codes,
     hex_code,
+    interval_errors,
+    intervals_from,
+    intervals_in_use,
     number,
 )
 from custom_components.deye_local_custom.models import (
@@ -25,8 +30,12 @@ from custom_components.deye_local_custom.models import (
     find_model,
     parse_info,
 )
-from custom_components.deye_local_custom.models.sg03lp1 import SG03LP1
-from custom_components.deye_local_custom.planner import Request, plan
+from custom_components.deye_local_custom.models.sg03lp1 import CLOCK, SG03LP1
+from custom_components.deye_local_custom.planner import (
+    Request,
+    plan,
+    requests_per_minute,
+)
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.util import dt as dt_util
 
@@ -35,6 +44,7 @@ from .fake_logger import INVERTER_SERIAL, default_registers, s16
 DEFAULT_KEYS = {
     d.key for d in SG03LP1.descriptions if d.entity_registry_enabled_default
 }
+VOLTAGE, FAST, SLOW = Tier.GRID_VOLTAGE, Tier.FAST, Tier.SLOW
 
 
 @pytest.mark.parametrize("model", MODELS, ids=lambda m: m.key)
@@ -87,7 +97,7 @@ def test_sg03lp1_writes_only_the_grid_charging_presets() -> None:
 def test_grid_status_and_voltage_come_from_one_request() -> None:
     by_key = {d.key: d for d in SG03LP1.descriptions}
     voltage, status = by_key["grid_voltage_l1"], by_key["grid_connected_status"]
-    assert voltage.interval == GRID_VOLTAGE_INTERVAL_S
+    assert (voltage.tier, status.tier) == (VOLTAGE, FAST)
     (block,) = [b for b in SG03LP1.blocks if b.holds(voltage)]
     assert block.holds(status)
     # Only grid status and voltage enabled: still one request for both
@@ -98,13 +108,7 @@ def test_grid_status_never_without_grid_voltage() -> None:
     """Grid voltage at 5 s of its own: a refresh between polls that finds grid status
     due and grid voltage not still reads both (a block's request starts at its lowest
     active register)."""
-    model = dataclasses.replace(
-        SG03LP1,
-        sensors=tuple(
-            dataclasses.replace(d, interval=5) if d.key == "grid_voltage_l1" else d
-            for d in SG03LP1.sensors
-        ),
-    )
+    model = SG03LP1.with_intervals({VOLTAGE: 5})
     assert model.tick == 5
     read_at = dict.fromkeys(DEFAULT_KEYS, 0.0)
     assert plan(model, DEFAULT_KEYS, read_at, 5.0) == [Request(150, 1)]  # its step
@@ -128,6 +132,124 @@ def test_default_load_is_about_seven_requests_a_minute() -> None:
     assert plan(SG03LP1, DEFAULT_KEYS, read_at, 111.0) == [
         Request(150, 81),
         Request(59, 33),
+    ]
+
+
+def test_tiers() -> None:
+    """Grid voltage alone in its tier; the clock the only fixed interval; each tier
+    read at its default."""
+    tiers = {d.key: d.tier for d in SG03LP1.descriptions}
+    assert [k for k, t in tiers.items() if t is VOLTAGE] == ["grid_voltage_l1"]
+    assert [k for k, t in tiers.items() if t is None] == ["clock_drift"]
+    assert tiers["grid_charging_current_preset"] is SLOW
+    for d in SG03LP1.descriptions:
+        assert d.interval == (DEFAULT_INTERVALS[d.tier] if d.tier else CLOCK), d.key
+    assert SG03LP1.with_intervals(DEFAULT_INTERVALS) == SG03LP1
+    assert interval_errors(DEFAULT_INTERVALS) == {}
+
+
+def test_interval_choices_keep_the_step() -> None:
+    """The checks interval_errors leaves out hold for every choice."""
+    for fast, slow in itertools.product(INTERVAL_CHOICES[FAST], INTERVAL_CHOICES[SLOW]):
+        assert slow % fast == 0, (fast, slow)
+    for voltage in INTERVAL_CHOICES[VOLTAGE]:
+        assert CLOCK % voltage == 0, voltage
+    for tier in Tier:
+        assert DEFAULT_INTERVALS[tier] in INTERVAL_CHOICES[tier]
+
+
+@pytest.mark.parametrize("model", MODELS, ids=lambda m: m.key)
+def test_every_valid_set_of_intervals(model) -> None:
+    """The polling step is the grid voltage's interval, every interval a multiple."""
+    valid = 0
+    for choice in itertools.product(*(INTERVAL_CHOICES[tier] for tier in Tier)):
+        intervals = dict(zip(Tier, choice, strict=True))
+        if errors := interval_errors(intervals):
+            assert errors == {FAST: "not_a_multiple_of_grid_voltage"}
+            assert intervals[FAST] % intervals[VOLTAGE]
+            continue
+        valid += 1
+        changed = model.with_intervals(intervals)
+        assert changed.tick == intervals[VOLTAGE]
+        for d, before in zip(changed.descriptions, model.descriptions, strict=True):
+            assert d.interval == (intervals[d.tier] if d.tier else before.interval)
+            assert d.interval % changed.tick == 0, d.key
+    assert valid == 16 * 3  # grid voltage and fast pairs, any slow
+
+
+def test_interval_errors() -> None:
+    assert interval_errors({VOLTAGE: 10, FAST: 20, SLOW: 120}) == {}
+    assert interval_errors({VOLTAGE: 10, FAST: 15, SLOW: 60}) == {
+        FAST: "not_a_multiple_of_grid_voltage"
+    }
+    assert interval_errors({VOLTAGE: 20, FAST: 30, SLOW: 60}) == {
+        FAST: "not_a_multiple_of_grid_voltage"
+    }
+    assert interval_errors({VOLTAGE: 7, FAST: 10, SLOW: 60}) == {
+        VOLTAGE: "not_a_choice"
+    }
+    assert interval_errors({VOLTAGE: 5, FAST: 10}) == {SLOW: "not_a_choice"}
+
+
+def test_intervals_from_options() -> None:
+    assert intervals_from({}) == DEFAULT_INTERVALS
+    assert intervals_from({"fast_interval": 20, "other": 1}) == {
+        VOLTAGE: 10,
+        FAST: 20,
+        SLOW: 60,
+    }
+    stored = {
+        "grid_voltage_interval": None,
+        "fast_interval": "abc",
+        "slow_interval": "60",
+    }
+    assert intervals_from(stored) == {VOLTAGE: None, FAST: None, SLOW: 60}
+    assert interval_errors(intervals_from(stored)) == {
+        VOLTAGE: "not_a_choice",
+        FAST: "not_a_choice",
+    }
+    assert intervals_in_use(stored) == DEFAULT_INTERVALS
+    assert intervals_in_use({"grid_voltage_interval": 5}) == {
+        VOLTAGE: 5,
+        FAST: 10,
+        SLOW: 60,
+    }
+
+
+@pytest.mark.parametrize(
+    ("intervals", "expected"),
+    [
+        ({}, 7.0),  # the defaults: 10 / 10 / 60
+        ({VOLTAGE: 5}, 13.0),  # grid voltage alone between the fast requests
+        ({FAST: 20}, 7.0),  # as many requests, half of them one register
+        ({VOLTAGE: 15, FAST: 15}, 5.0),
+        ({VOLTAGE: 20, FAST: 20, SLOW: 120}, 3.5),
+        ({VOLTAGE: 30, FAST: 60, SLOW: 300}, 2.2),
+    ],
+)
+def test_requests_a_minute(intervals: dict[Tier, int], expected: float) -> None:
+    """About 60 / grid voltage + 60 / slow: every poll sends a request."""
+    model = SG03LP1.with_intervals(intervals)
+    assert requests_per_minute(model, DEFAULT_KEYS) == expected
+
+
+def test_grid_voltage_alone_between_the_fast_requests() -> None:
+    model = SG03LP1.with_intervals({FAST: 20})
+    read_at: dict[str, float] = {}
+    requests: list[Request] = []
+    for now in range(0, 50, 10):
+        due = plan(model, DEFAULT_KEYS, read_at, float(now))
+        requests += due
+        for d in model.descriptions:
+            if any(r.holds(d) for r in due):
+                read_at[d.key] = float(now)
+    assert requests == [
+        Request(150, 81),  # 0 s: with the settings
+        Request(59, 33),
+        Request(150, 1),  # 10 s: grid voltage alone
+        Request(150, 45),  # 20 s
+        Request(150, 1),
+        Request(150, 45),  # 40 s
     ]
 
 

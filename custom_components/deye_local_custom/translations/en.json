@@ -40,6 +40,27 @@
       "reconfigure_successful": "The connection settings were changed."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reading intervals",
+        "description": "Every poll sends one request to the logger: about 60 / grid voltage + 60 / slow values requests a minute (now {requests}, with the enabled entities). More requests give fresher values, but a busy logger misses more of its cloud server's replies. Saving a change reloads the integration: its entities are unavailable for a moment.",
+        "data": {
+          "grid_voltage_interval": "Grid voltage",
+          "fast_interval": "Fast values",
+          "slow_interval": "Slow values"
+        },
+        "data_description": {
+          "grid_voltage_interval": "Grid Voltage L1, what automations about the grid going down react to. Also the polling step: one request per poll.",
+          "fast_interval": "Grid status and the power, voltage and current values of the grid, load, inverter and battery: one request. A multiple of the grid voltage interval; when longer, the polls in between read the grid voltage alone.",
+          "slow_interval": "Energy counters, temperatures, running status, grid frequency and the settings (grid charging current and its preset)."
+        }
+      }
+    },
+    "error": {
+      "not_a_multiple_of_grid_voltage": "Must be a multiple of the grid voltage interval."
+    }
+  },
   "exceptions": {
     "no_answer": {
       "message": "No answer from the logger: {reason}."

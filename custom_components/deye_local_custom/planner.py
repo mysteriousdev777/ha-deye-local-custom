@@ -66,3 +66,18 @@ def plan(
         first = min(r for d in enabled if block.holds(d) for r in d.registers)
         requests.append(Request(first, last - first + 1))
     return requests
+
+
+def requests_per_minute(model: Model, active: Collection[str]) -> float:
+    """Requests a minute the plan makes over 10 minutes (the clock's 300 s twice):
+    every poll on time, every request answered."""
+    span = 600
+    read_at: dict[str, float] = {}
+    count = 0
+    for now in range(0, span, model.tick):
+        for request in plan(model, active, read_at, float(now)):
+            count += 1
+            for d in model.descriptions:
+                if d.key in active and request.holds(d):
+                    read_at[d.key] = float(now)
+    return count * 60 / span

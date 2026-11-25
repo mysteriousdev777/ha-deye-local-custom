@@ -198,3 +198,87 @@ async def test_reconfigure_to_another_inverter(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_device"
     assert entry.data[CONF_PORT] == 1
+
+
+async def test_options(
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    user_input: dict[str, Any],
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=INVERTER_SERIAL,
+        data={**user_input, CONF_DEVICE_TYPE: 3},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    # Not loaded: the defaults, with the entities enabled by default
+    assert result["description_placeholders"] == {"requests": "7"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"grid_voltage_interval": "10", "fast_interval": "15", "slow_interval": "60"},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"fast_interval": "not_a_multiple_of_grid_voltage"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"grid_voltage_interval": "15", "fast_interval": "15", "slow_interval": "120"},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {
+        "grid_voltage_interval": 15,
+        "fast_interval": 15,
+        "slow_interval": 120,
+    }
+
+
+async def test_options_stored_not_valid_submitted_again(
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    user_input: dict[str, Any],
+) -> None:
+    """A combination stored by hand that is not valid, sent back unchanged: the
+    error, not "nothing changed" (the entry reads at the defaults meanwhile)."""
+    stored = {"grid_voltage_interval": 10, "fast_interval": 15, "slow_interval": 60}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=INVERTER_SERIAL,
+        data={**user_input, CONF_DEVICE_TYPE: 3},
+        options=stored,
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {key: str(value) for key, value in stored.items()}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"fast_interval": "not_a_multiple_of_grid_voltage"}
+    assert entry.options == stored
+
+
+async def test_options_not_valid_not_loaded(
+    hass: HomeAssistant,
+    enable_custom_integrations: None,
+    user_input: dict[str, Any],
+) -> None:
+    """Stored options not valid, the entry not loaded: the form starts from the
+    defaults, and so does the number of requests (a step of 1 s otherwise)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=INVERTER_SERIAL,
+        data={**user_input, CONF_DEVICE_TYPE: 3},
+        options={"grid_voltage_interval": 7},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["description_placeholders"] == {"requests": "7"}
+    suggested = {
+        str(key.schema): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+    }
+    assert suggested == {
+        "grid_voltage_interval": "10",
+        "fast_interval": "10",
+        "slow_interval": "60",
+    }

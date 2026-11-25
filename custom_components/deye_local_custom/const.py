@@ -1,5 +1,7 @@
 """Constants of the Deye Local Custom integration."""
 
+from collections.abc import Mapping
+from enum import StrEnum
 from typing import Final
 
 DOMAIN: Final = "deye_local_custom"
@@ -15,9 +17,10 @@ DEFAULT_PORT: Final = 8899
 REQUEST_TIMEOUT: Final = 15.0
 
 # A value stays available this long past its reading interval after its last good read
-# (fast values: 10 + 90 s). The logger reboots every 3 hours and is away for 30-45 s:
-# with the next poll and a timed-out request, about 70 s after the last good read in
-# the worst case. Past it, the values go unavailable and the connection sensor goes off.
+# (fast values by default: 10 + 90 s). The logger reboots every 3 hours and is away for
+# 30-45 s: with the next poll and a timed-out request, about 70 s after the last good
+# read in the worst case. Past it, the values go unavailable and the connection sensor
+# goes off.
 HOLD: Final = 90.0
 
 # Writing a preset: an attempt (read, write if different, read back); while the logger
@@ -33,8 +36,35 @@ WRITE_RETRY: Final = 10.0
 # inverter's limits (a test checks it).
 GRID_CHARGE_PRESETS_A: Final = (30, 50)
 
-# Reading interval of the grid voltage, seconds. Automations that report the grid going
-# down react to it. At 10 s it goes with the other fast values in one request; 5 s
-# would add a one-register request between them - to be tried after the move, watching
-# the logger's load.
-GRID_VOLTAGE_INTERVAL_S: Final = 10
+
+class Tier(StrEnum):
+    """How often a value is read. Each tier's interval is an option of the entry."""
+
+    # Grid voltage alone: automations that report the grid going down react to it
+    GRID_VOLTAGE = "grid_voltage"
+    FAST = "fast"  # grid status, power, battery: one request
+    SLOW = "slow"  # counters, temperatures, running status, settings
+
+    @property
+    def option(self) -> str:
+        """Its key in the entry's options."""
+        return f"{self.value}_interval"
+
+
+# Reading intervals, seconds. The polling step is the grid voltage's interval, so each
+# tier is a multiple of the one before it: the fast one is checked (the form), every
+# slow choice is a multiple of every fast one, the clock's fixed 300 s of every grid
+# voltage choice (a test keeps both). Every poll sends a request: about
+# 60 / grid voltage + 60 / slow requests a minute; a fast interval longer than the grid
+# voltage's makes the polls between the fast ones one-register requests (150), not
+# fewer requests.
+DEFAULT_INTERVALS: Final[Mapping[Tier, int]] = {
+    Tier.GRID_VOLTAGE: 10,
+    Tier.FAST: 10,
+    Tier.SLOW: 60,
+}
+INTERVAL_CHOICES: Final[Mapping[Tier, tuple[int, ...]]] = {
+    Tier.GRID_VOLTAGE: (5, 10, 15, 20, 30),
+    Tier.FAST: (10, 15, 20, 30, 60),
+    Tier.SLOW: (60, 120, 300),
+}

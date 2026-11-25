@@ -17,7 +17,8 @@ the battery's grid charging current, to one of two fixed presets.
 Goals:
 
 - Values every 10 seconds without overloading a slow logger: about 7 requests a minute,
-  with a request layout made for this inverter.
+  with a request layout made for this inverter. The intervals are options, to find the
+  balance for a given logger without a new version.
 - One thing to write: the grid charging current, to fixed presets, confirmed by reading
   it back. No way to write any other register or value.
 - No unavailable values during the logger's planned reboot (every 3 hours, 30-45 s),
@@ -101,43 +102,83 @@ port or logger serial number of the same inverter.
 
 Enabled by default (the names of the previous integration, for the same entity ids):
 
-| Entity | Register(s) | Read every |
+| Entity | Register(s) | Read every (tier, default) |
 |---|---|---|
-| Grid Voltage L1 | 150 | 10 s |
-| Grid-connected Status (`Off-Grid` / `On-Grid`) | 194 | 10 s |
-| Total Grid Power, Load L1 Power, Total Load Power, Total Power | 169, 176, 178, 175 | 10 s |
-| Load Voltage, Load Frequency | 157, 192 | 10 s |
-| Battery Voltage, Battery SOC, Battery Power, Battery Current | 183, 184, 190, 191 | 10 s |
-| Running Status (`Stand-by`, `Self-checking`, `Normal`, `FAULT`) | 59 | 60 s |
-| Grid Frequency, DC Temperature, AC Temperature | 79, 90, 91 | 60 s |
-| Total Battery Charge, Total Battery Discharge, Total Load Consumption | 72-75, 85-86 | 60 s |
-| Grid charging current (sensor: any value, also one set on the inverter's screen) | 230 | 60 s |
-| Grid charging current preset (select: 30 A / 50 A) | 230 | 60 s |
+| Grid Voltage L1 | 150 | grid voltage, 10 s |
+| Grid-connected Status (`Off-Grid` / `On-Grid`) | 194 | fast, 10 s |
+| Total Grid Power, Load L1 Power, Total Load Power, Total Power | 169, 176, 178, 175 | fast, 10 s |
+| Load Voltage, Load Frequency | 157, 192 | fast, 10 s |
+| Battery Voltage, Battery SOC, Battery Power, Battery Current | 183, 184, 190, 191 | fast, 10 s |
+| Running Status (`Stand-by`, `Self-checking`, `Normal`, `FAULT`) | 59 | slow, 60 s |
+| Grid Frequency, DC Temperature, AC Temperature | 79, 90, 91 | slow, 60 s |
+| Total Battery Charge, Total Battery Discharge, Total Load Consumption | 72-75, 85-86 | slow, 60 s |
+| Grid charging current (sensor: any value, also one set on the inverter's screen) | 230 | slow, 60 s |
+| Grid charging current preset (select: 30 A / 50 A) | 230 | slow, 60 s |
 | Connection (on while the values are fresh) | - | - |
 
 Disabled by default, read only when enabled: daily counters (battery charge and
 discharge, energy bought and sold, load), total energy bought and sold, grid current,
 output power and current, internal CT power, battery temperature, PV1/PV2 power,
 voltage and current, fault codes, warning code, clock drift (inverter vs Home
-Assistant), max charging and discharging current, grid charge on/off.
+Assistant), max charging and discharging current, grid charge on/off. Counters, PV
+voltage and current, codes and settings read with the slow tier, powers, currents and
+battery temperature with the fast one; clock drift every 300 s, not an option.
 
 Grid-connected Status is the state of the inverter's grid relay, not the presence of
 grid voltage: after the grid comes back it stays `Off-Grid` for a while, and the
 inverter may leave a grid it considers unstable.
 
+## Reading intervals
+
+**Settings → Devices & services → Deye Local Custom → ⚙ (Configure)** sets how often
+each tier is read:
+
+| Tier | Choices | Default |
+|---|---|---|
+| Grid voltage (Grid Voltage L1) | 5, 10, 15, 20, 30 s | 10 s |
+| Fast values | 10, 15, 20, 30, 60 s | 10 s |
+| Slow values | 60, 120, 300 s | 60 s |
+
+- The grid voltage interval is the polling step, and every poll sends one request: about
+  60 / grid voltage + 60 / slow values requests a minute. The form shows the number for
+  the current settings and the enabled entities.
+- The fast interval is a multiple of the grid voltage's. Longer, it does not mean fewer
+  requests: the polls in between read the grid voltage alone (one register), the others
+  the whole fast block.
+- More requests give fresher values but keep the logger busier; a busy Solarman logger
+  misses more of its cloud server's replies and reconnects to it more often.
+
+| Grid voltage / fast / slow | Requests a minute | Grid voltage read alone |
+|---|---|---|
+| 10 / 10 / 60 (default) | 7 | no |
+| 5 / 10 / 60 | 13 | every other poll |
+| 10 / 20 / 60 | 7 | every other poll |
+| 15 / 15 / 60 | 5 | no |
+| 20 / 20 / 120 | 3.5 | no |
+
+Saving a change reloads the integration: its entities are unavailable for a moment, as
+after **Reconfigure** (saving the same values does nothing). Automations that react to
+`unavailable` see it: a `numeric_state` trigger that already fired (say, battery SOC
+below a threshold) fires again when the value comes back. Diagnostics show the intervals
+in use. Stored intervals that are not valid (a choice dropped by a later version, a value
+edited by hand) give the defaults and one warning in the log; the form then starts from
+the defaults.
+
 ## How it polls
 
-- Fast values (registers 150-194) every 10 s in one request; the settings (210-232) join
-  that request once a minute; the slow values (59-91) once a minute in another. About 7
-  requests a minute with the default entities. Grid status and grid voltage always come
-  from the same request.
+- At the default intervals: fast values (registers 150-194) every 10 s in one request;
+  the settings (210-232) join that request once a minute; the slow values (59-91) once
+  a minute in another. About 7 requests a minute with the default entities. Grid status
+  and grid voltage always come from the same request (also when grid voltage is read
+  more often: then alone in between).
 - A disabled entity is not read: requests are planned from the enabled entities, so
   disabling the ones you do not need can shorten or drop a request.
 - One TCP connection, one request at a time; reopened after a failure.
-- A value stays available for its interval + 90 s after its last good read (fast values:
-  100 s), and a failed request is retried on the next poll. The logger's planned reboot
-  does not make anything unavailable; a real loss does, about 100 s after the last good
-  read, when the Connection sensor also goes off. One warning in the log then, and one
+- A value stays available for its interval + 90 s after its last good read (fast values
+  by default: 100 s), and a failed request is retried on the next poll. The logger's
+  planned reboot does not make anything unavailable; a real loss does, and the
+  Connection sensor goes off with the values read most often: their interval + 90 s
+  after the last good read (grid voltage's unless disabled; 100 s by default). One warning in the log then, and one
   info line when the inverter answers again.
 - After a Home Assistant restart the entities start with fresh values; while the logger
   is away, set-up is retried.

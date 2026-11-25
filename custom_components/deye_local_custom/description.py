@@ -10,7 +10,7 @@ entities) is the same for any model.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from functools import cached_property
@@ -21,6 +21,8 @@ from homeassistant.components.binary_sensor import BinarySensorEntityDescription
 from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.util import dt as dt_util
+
+from .const import DEFAULT_INTERVALS, INTERVAL_CHOICES, Tier
 
 type Decoder = Callable[[Sequence[int]], Any]
 
@@ -112,11 +114,13 @@ def clock_drift(words: Sequence[int]) -> int | None:
 class RegisterDescription:
     """An entity's registers, low word first, and its reading interval in seconds.
 
-    The value stays available for interval + HOLD after its last good read.
+    The value stays available for interval + HOLD after its last good read. `tier`: the
+    option that sets the interval (Model.with_intervals); None for a fixed one.
     """
 
     registers: tuple[int, ...]
     interval: int
+    tier: Tier | None = None
     decode: Decoder
 
 
@@ -196,3 +200,63 @@ class Model:
     def tick(self) -> int:
         """Polling step, seconds: every reading interval is a multiple of it."""
         return math.gcd(*(d.interval for d in self.descriptions))
+
+    def with_intervals(self, intervals: Mapping[Tier, int]) -> Model:
+        """The same model, the tiers read at these intervals (check interval_errors)."""
+
+        def apply[D: AnyDescription](descriptions: tuple[D, ...]) -> tuple[D, ...]:
+            return tuple(
+                replace(d, interval=intervals[d.tier])
+                if d.tier is not None and d.tier in intervals
+                else d
+                for d in descriptions
+            )
+
+        return replace(
+            self,
+            sensors=apply(self.sensors),
+            binary_sensors=apply(self.binary_sensors),
+            selects=apply(self.selects),
+        )
+
+
+def interval_errors(intervals: Mapping[Tier, int | None]) -> dict[Tier, str]:
+    """What is wrong with a set of tier intervals, by tier (empty: nothing).
+
+    Each is one of its choices, and the fast one a multiple of the grid voltage's: the
+    polling step stays the grid voltage's interval, and no value falls between polls.
+    Every slow choice is a multiple of every fast one (a test keeps it so).
+    """
+    errors: dict[Tier, str] = {}
+    for tier in Tier:
+        if intervals.get(tier) not in INTERVAL_CHOICES[tier]:
+            errors[tier] = "not_a_choice"
+    voltage, fast = intervals.get(Tier.GRID_VOLTAGE), intervals.get(Tier.FAST)
+    if not errors and voltage and fast and fast % voltage:
+        errors[Tier.FAST] = "not_a_multiple_of_grid_voltage"
+    return errors
+
+
+def _seconds(value: Any) -> int | None:
+    try:
+        return int(value)
+    except TypeError, ValueError:
+        return None
+
+
+def intervals_from(options: Mapping[str, Any]) -> dict[Tier, int | None]:
+    """The tier intervals stored in an entry's options, as they are (None: not a
+    number); the defaults for those not set. Check them with interval_errors."""
+    return {
+        tier: _seconds(options.get(tier.option, DEFAULT_INTERVALS[tier]))
+        for tier in Tier
+    }
+
+
+def intervals_in_use(options: Mapping[str, Any]) -> dict[Tier, int]:
+    """The intervals to read at: the options', or all the defaults if they are not
+    valid (a choice a later version dropped, a value edited by hand)."""
+    stored = intervals_from(options)
+    if interval_errors(stored):
+        return dict(DEFAULT_INTERVALS)
+    return {tier: seconds for tier, seconds in stored.items() if seconds is not None}

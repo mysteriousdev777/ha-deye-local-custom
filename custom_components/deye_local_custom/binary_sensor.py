@@ -46,8 +46,8 @@ class DeyeBinarySensor(DeyeEntity, BinarySensorEntity):
 class DeyeConnectionSensor(CoordinatorEntity[DeyeCoordinator], BinarySensorEntity):
     """On while the inverter's values are fresh; always available, for alerts.
 
-    Goes off when the fast values go unavailable (no good read for a polling step +
-    HOLD): not on the logger's planned reboots.
+    Goes off when the values read most often go unavailable (no good read for their
+    interval + HOLD): not on the logger's planned reboots.
     """
 
     _attr_has_entity_name = True

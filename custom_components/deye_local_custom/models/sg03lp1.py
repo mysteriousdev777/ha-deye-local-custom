@@ -4,11 +4,13 @@ Addresses, scales and signs agree in three sources: StephanJoubert's and davidra
 deye_hybrid.yaml and kellerza/sunsynk's single_phase.py (where they differ in sign only,
 signed is right: the values are the same within the range in use).
 
-Request layout: the fast block (150-194: grid, load, battery, status) every 10 s in one
-request, the settings (210-232) with it once a minute; the slow block (59-91: counters,
-temperatures, running status, grid frequency) once a minute. About 7 requests a minute
-with the default entities. Disabled entities are not read; entities outside the default
-ranges widen a request or add one (clock: 22-24).
+Request layout, at the default intervals (options of the entry, by tier): the fast block
+(150-194: grid, load, battery, status) every 10 s in one request, the settings (210-232)
+with it once a minute; the slow block (59-91: counters, temperatures, running status,
+grid frequency) once a minute. About 7 requests a minute with the default entities.
+Grid voltage (150) has a tier of its own: shorter than the fast one, it is read alone
+between the fast requests. Disabled entities are not read; entities outside the default
+ranges widen a request or add one (clock: 22-24, every 300 s whatever the options).
 
 Names: the entities of the previous integration (StephanJoubert's solarman) keep its
 names, so they get the same entity ids under the device "Inverter" and their history
@@ -16,6 +18,8 @@ goes on. New entities have Home Assistant style names.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
@@ -30,7 +34,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 
-from ..const import GRID_CHARGE_PRESETS_A, GRID_VOLTAGE_INTERVAL_S
+from ..const import DEFAULT_INTERVALS, GRID_CHARGE_PRESETS_A, Tier
 from ..description import (
     Block,
     Decoder,
@@ -46,9 +50,18 @@ from ..description import (
     number,
 )
 
-FAST = 10  # seconds
-SLOW = 60
-CLOCK = 300
+GRID_VOLTAGE = Tier.GRID_VOLTAGE
+FAST = Tier.FAST
+SLOW = Tier.SLOW
+CLOCK = 300  # seconds, not an option: the drift of the inverter's clock is slow
+
+
+def _polling(poll: Tier | int) -> dict[str, Any]:
+    """A tier's default interval, or a fixed interval in seconds."""
+    if isinstance(poll, Tier):
+        return {"tier": poll, "interval": DEFAULT_INTERVALS[poll]}
+    return {"tier": None, "interval": poll}
+
 
 # Register 59. The previous integration knew 0-3 and named 3 FAULT; the other sources
 # call 3 "alarm" and 4 "fault". Both show as FAULT: the fault and warning code sensors
@@ -93,7 +106,7 @@ def _sensor(
     name: str,
     registers: tuple[int, ...],
     decode: Decoder,
-    interval: int,
+    poll: Tier | int,
     device_class: SensorDeviceClass | None = None,
     unit: str | None = None,
     *,
@@ -110,7 +123,7 @@ def _sensor(
         name=name,
         registers=registers,
         decode=decode,
-        interval=interval,
+        **_polling(poll),
         device_class=device_class,
         native_unit_of_measurement=unit,
         state_class=state_class,
@@ -125,7 +138,7 @@ def _enum(
     name: str,
     register: int,
     states: dict[int, str],
-    interval: int,
+    poll: Tier | int,
     icons: dict[str, str],
 ) -> DeyeSensorDescription:
     return DeyeSensorDescription(
@@ -134,7 +147,7 @@ def _enum(
         name=name,
         registers=(register,),
         decode=lookup(states),
-        interval=interval,
+        **_polling(poll),
         device_class=SensorDeviceClass.ENUM,
         options=list(dict.fromkeys(states.values())),
         state_icons=icons,
@@ -170,7 +183,7 @@ SENSORS: tuple[DeyeSensorDescription, ...] = (
         "Grid Voltage L1",
         (150,),
         number(0.1),
-        GRID_VOLTAGE_INTERVAL_S,
+        GRID_VOLTAGE,
         VOLTAGE,
         V,
         precision=1,
@@ -535,7 +548,7 @@ BINARY_SENSORS: tuple[DeyeBinarySensorDescription, ...] = (
         name="Grid charge",  # the battery may charge from the grid
         registers=(232,),
         decode=bit(0),
-        interval=SLOW,
+        **_polling(SLOW),
         entity_category=DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
@@ -548,7 +561,7 @@ SELECTS: tuple[DeyeSelectDescription, ...] = (
         name="Grid charging current preset",
         registers=(230,),
         decode=number(),
-        interval=SLOW,
+        **_polling(SLOW),
         values=GRID_CHARGE_PRESETS_A,
         options=[f"{amperes} A" for amperes in GRID_CHARGE_PRESETS_A],
         # The SUN-5K's maximum battery charging current (datasheet): no preset above it
